@@ -22,32 +22,42 @@ class dataSet {
   String rootDir;
   std::vector<String> filenames;
   Mat K;
+  Mat distortion;
   dataSet(String root) {
     rootDir = root;
     cout << root << endl;
     ifstream calib(rootDir + "K.txt");
     ifstream imageNames(rootDir + "images.txt");
+    ifstream dist(rootDir + "distortion.txt");
     double k11, k12, k13, k21, k22, k23, k31, k32, k33;
     calib >> k11 >> k12 >> k13 >> k21 >> k22 >> k23 >> k31 >> k32 >> k33;
     K = (cv::Mat_<double>(3, 3) << k11, k12, k13, k21, k22, k23, k31, k32, k33);
-    cout << K << endl;
     imageNames >> numImages;
-    cout << numImages << endl;
     for (int i = 0; i < numImages; i++) {
       String fileName;
       imageNames >> fileName;
       filenames.push_back(fileName);
-      cout << fileName << endl;
     }
-    cout << "init" << endl;
+    if (!dist) {
+      distortion = (cv::Mat_<double>(4, 1) << 0, 0, 0, 0);
+    } else {
+      double k1, k2, p1, p2;
+      dist >> k1 >> k2 >> p1 >> p2;
+      cout << k1 << ' ' << k2 << ' ' << p1 << ' ' << p2 << endl;
+      distortion = (cv::Mat_<double>(4, 1) << k1, k2, p1, p2);
+    }
   }
   Mat getImage(int n) {
-    return imread(rootDir + filenames[n], IMREAD_GRAYSCALE);
+    Mat img = imread(rootDir + filenames[n], IMREAD_GRAYSCALE);
+    return img;
+  }
+  Mat getColorImage(int n) {
+    Mat img = imread(rootDir + filenames[n], IMREAD_COLOR);
+    return img;
   }
 };
 
 int minHessian = 800;
-Mat distortion = (cv::Mat_<double>(4, 1) << 0, 0, 0, 0);
 
 class image {
  public:
@@ -82,7 +92,7 @@ class dataBase {
   dataBase() {}
 };
 
-void showPoints(dataBase db) {
+void showPoints(dataBase db, dataSet ds) {
   int N = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
     if (db.points[i].hasPosition) {
@@ -90,18 +100,33 @@ void showPoints(dataBase db) {
     }
   }
 
-  Mat cloud_mat(N, 1, CV_32FC3);
+  std::vector<Vec3d> cloud_mat;
+  std::vector<Vec3b> colors(db.points.size());
+  std::vector<Vec3b> colorsToShow;
+  for (size_t i = 0; i < db.images.size(); i++) {
+    Mat img = ds.getColorImage(i);
+    for (size_t j = 0; j < db.images[i].keyPointIdx.size(); j++) {
+      int idx = db.images[i].keyPointIdx[j];
+      if (idx >= 0 && db.points[idx].hasPosition) {
+        int x = (int)db.images[i].keyPoints[j].pt.x;
+        int y = (int)db.images[i].keyPoints[j].pt.y;
+        colors[idx] = img.at<Vec3b>(Point(x, y));
+      }
+    }
+  }
   int cnt = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
     if (db.points[i].hasPosition) {
-      cloud_mat.at<Vec3f>(cnt, 0) = db.points[i].positionAbs;
+      cloud_mat.push_back(db.points[i].positionAbs);
+      colorsToShow.push_back(colors[i]);
       cnt++;
     }
   }
   cout << "total:" << N << "points" << endl;
   String winname = "Viz Camera Pose";
   viz::Viz3d myWindow(winname);
-  viz::WCloud wcloud(cloud_mat, viz::Color::white());
+  cout << colorsToShow.size() << ' ' << cloud_mat.size() << endl;
+  viz::WCloud wcloud(cloud_mat, colorsToShow);
   myWindow.showWidget("Cloud", wcloud);
   myWindow.spin();
 }
@@ -109,9 +134,10 @@ void showPoints(dataBase db) {
 bool matchKeyPoints() { return true; }
 
 dataBase init(Mat img1, Mat img2, dataSet ds) {
-  std::vector<Point2d> p1;
-  std::vector<Point2d> p2;
+  std::vector<Point2d> p1_;
+  std::vector<Point2d> p2_;
   Mat K = ds.K;
+  Mat distortion = ds.distortion;
   dataBase db;
   Ptr<SURF> detector = SURF::create(minHessian);
   std::vector<KeyPoint> keypoints1, keypoints2;
@@ -138,15 +164,19 @@ dataBase init(Mat img1, Mat img2, dataSet ds) {
                 Scalar::all(-1), Scalar::all(-1), std::vector<char>(),
                 DrawMatchesFlags::NOT_DRAW_SINGLE_POINTS);
     imshow("init Matches", img_matches);
-    waitKey();
+    waitKey(0);
   }
   std::vector<long> idx1(keypoints1.size(), -1), idx2(keypoints2.size(), -1);
   for (size_t i = 0; i < good_matches.size(); i++) {
-    p1.push_back(keypoints1[good_matches[i].queryIdx].pt);
-    p2.push_back(keypoints2[good_matches[i].trainIdx].pt);
+    p1_.push_back(keypoints1[good_matches[i].queryIdx].pt);
+    p2_.push_back(keypoints2[good_matches[i].trainIdx].pt);
     idx1[good_matches[i].queryIdx] = i;
     idx2[good_matches[i].trainIdx] = i;
   }
+  std::vector<Point2d> p1;
+  std::vector<Point2d> p2;
+  undistortPoints(p1_, p1, K, distortion, noArray(), K);
+  undistortPoints(p2_, p2, K, distortion, noArray(), K);
   Mat E, R, t, mask;
   E = findEssentialMat(p1, p2, K, RANSAC, 0.999, 0.4, mask);
   recoverPose(E, p1, p2, K, R, t, mask);
@@ -187,6 +217,7 @@ dataBase init(Mat img1, Mat img2, dataSet ds) {
 
 bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
   Mat K = ds.K;
+  Mat distortion = ds.distortion;
   Ptr<SURF> detector = SURF::create(minHessian);
   std::vector<KeyPoint> curKeypoints;
   std::vector<KeyPoint> prevKeypoints = db.images[prevIdx].keyPoints;
@@ -206,7 +237,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
       good_matches.push_back(knn_matches[i][0]);
     }
   }
-
+  cout << "matched" << endl;
   int cnt = 0;
   for (size_t i = 0; i < good_matches.size(); i++) {
     int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
@@ -249,11 +280,15 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
   Mat P2 = K * Rt2;
   // calc position
 
-  std::vector<Point2d> p1, p2;
+  std::vector<Point2d> p1_, p2_;
   for (size_t i = 0; i < good_matches.size(); i++) {
-    p1.push_back(prevKeypoints[good_matches[i].queryIdx].pt);
-    p2.push_back(curKeypoints[good_matches[i].trainIdx].pt);
+    p1_.push_back(prevKeypoints[good_matches[i].queryIdx].pt);
+    p2_.push_back(curKeypoints[good_matches[i].trainIdx].pt);
   }
+  std::vector<Point2d> p1;
+  std::vector<Point2d> p2;
+  undistortPoints(p1_, p1, K, distortion, noArray(), K);
+  undistortPoints(p2_, p2, K, distortion, noArray(), K);
   findEssentialMat(p1, p2, K, RANSAC, 0.999, 0.4, mask);
   Mat result;
   triangulatePoints(P1, P2, p1, p2, result);
@@ -278,7 +313,6 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
         curIdx[idxCurKeypoint] = idx;
         if (db.points[idx].hasPosition) {
           // 何もしない
-          // cout << db.points[idx].positionAbs << ' ' << pt << endl;
         } else {
           // positionを更新
           db.points[idx].hasPosition = true;
@@ -293,7 +327,6 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
         db.points.push_back(p);
       } else {
         curIdx[idxCurKeypoint] = idx;
-        // cout << db.points[idx].positionAbs << ' ' << pt << endl;
         // もうすでに登録済みの場合は何もしない
       }
     }
@@ -303,8 +336,10 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
   return true;
 }
 const String rootDir =
-    "/home/yuta/work/study/ImageProcessing/dateasets/ImageDataset_SceauxCastle/"
-    "images/";
+    "/home/yuta/work/study/ImageProcessing/dateasets/temple/";
+// "/home/yuta/work/study/ImageProcessing/dateasets/ImageDataset_SceauxCastle/"
+// "images/";
+// "/home/yuta/work/study/ImageProcessing/dateasets/gerrard-hall/images/";
 
 int main(int argc, char *argv[]) {
   dataSet ds(rootDir);
@@ -312,13 +347,14 @@ int main(int argc, char *argv[]) {
   Mat prev = ds.getImage(start);
   Mat cur = ds.getImage(start + 1);
   dataBase db = init(prev, cur, ds);
-  showPoints(db);
+  showPoints(db, ds);
   prev = cur;
   for (int i = start + 2; i <= ds.numImages; i++) {
     cout << i << endl;
     Mat cur = ds.getImage(i);
+    cout << cur.size << endl;
     addNewImage(db, i - 2, cur, ds);
-    showPoints(db);
+    showPoints(db, ds);
   }
   return 0;
 }
