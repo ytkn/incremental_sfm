@@ -43,7 +43,6 @@ class dataSet {
     } else {
       double k1, k2, p1, p2;
       dist >> k1 >> k2 >> p1 >> p2;
-      cout << k1 << ' ' << k2 << ' ' << p1 << ' ' << p2 << endl;
       distortion = (cv::Mat_<double>(4, 1) << k1, k2, p1, p2);
     }
   }
@@ -89,6 +88,8 @@ class dataBase {
  public:
   std::vector<point> points;
   std::vector<image> images;
+  std::vector<int> imageIdx;
+  std::vector<Vec3b> colors;
   dataBase() {}
 };
 
@@ -99,36 +100,36 @@ void showPoints(dataBase db, dataSet ds) {
       N++;
     }
   }
-
   std::vector<Vec3d> cloud_mat;
-  std::vector<Vec3b> colors(db.points.size());
   std::vector<Vec3b> colorsToShow;
-  for (size_t i = 0; i < db.images.size(); i++) {
-    Mat img = ds.getColorImage(i);
-    for (size_t j = 0; j < db.images[i].keyPointIdx.size(); j++) {
-      int idx = db.images[i].keyPointIdx[j];
-      if (idx >= 0 && db.points[idx].hasPosition) {
-        int x = (int)db.images[i].keyPoints[j].pt.x;
-        int y = (int)db.images[i].keyPoints[j].pt.y;
-        colors[idx] = img.at<Vec3b>(Point(x, y));
-      }
-    }
-  }
   int cnt = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
     if (db.points[i].hasPosition) {
       cloud_mat.push_back(db.points[i].positionAbs);
-      colorsToShow.push_back(colors[i]);
+      colorsToShow.push_back(db.colors[i]);
       cnt++;
     }
   }
   cout << "total:" << N << "points" << endl;
   String winname = "Viz Camera Pose";
   viz::Viz3d myWindow(winname);
-  cout << colorsToShow.size() << ' ' << cloud_mat.size() << endl;
   viz::WCloud wcloud(cloud_mat, colorsToShow);
   myWindow.showWidget("Cloud", wcloud);
   myWindow.spin();
+}
+
+bool addColor(dataSet ds, dataBase &db, int i) {
+  Mat img = ds.getColorImage(db.imageIdx[i]);
+  db.colors.resize(db.points.size());
+  for (size_t j = 0; j < db.images[i].keyPointIdx.size(); j++) {
+    int idx = db.images[i].keyPointIdx[j];
+    if (idx >= 0 && db.points[idx].hasPosition) {
+      int x = (int)db.images[i].keyPoints[j].pt.x;
+      int y = (int)db.images[i].keyPoints[j].pt.y;
+      db.colors[idx] = img.at<Vec3b>(Point(x, y));
+    }
+  }
+  return true;
 }
 
 bool matchKeyPoints() { return true; }
@@ -158,7 +159,7 @@ dataBase init(Mat img1, Mat img2, dataSet ds) {
       good_matches.push_back(knn_matches[i][0]);
     }
   }
-  if (DEBUG) {
+  if (false) {
     Mat img_matches;
     drawMatches(img1, keypoints1, img2, keypoints2, good_matches, img_matches,
                 Scalar::all(-1), Scalar::all(-1), std::vector<char>(),
@@ -228,7 +229,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
       DescriptorMatcher::create(DescriptorMatcher::FLANNBASED);
   std::vector<std::vector<DMatch> > knn_matches;
   matcher->knnMatch(prevDescriptors, curDescriptors, knn_matches, 2);
-
+  cout << "match" << endl;
   const float ratio_thresh = 0.7f;
   std::vector<DMatch> good_matches;
   for (size_t i = 0; i < knn_matches.size(); i++) {
@@ -343,17 +344,23 @@ const String rootDir =
 
 int main(int argc, char *argv[]) {
   dataSet ds(rootDir);
-  int start = 1;
+  int start = 50;
   Mat prev = ds.getImage(start);
   Mat cur = ds.getImage(start + 1);
   dataBase db = init(prev, cur, ds);
+  db.imageIdx.push_back(start);
+  db.imageIdx.push_back(start + 1);
+  addColor(ds, db, 1);
   showPoints(db, ds);
   prev = cur;
   for (int i = start + 2; i <= ds.numImages; i++) {
     cout << i << endl;
     Mat cur = ds.getImage(i);
     cout << cur.size << endl;
-    addNewImage(db, i - 2, cur, ds);
+    addNewImage(db, i - start - 1, cur, ds);
+    addColor(ds, db, i - start - 1);
+    db.imageIdx.push_back(i);
+    cout << "show" << endl;
     showPoints(db, ds);
   }
   return 0;
