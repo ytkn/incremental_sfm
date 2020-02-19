@@ -56,7 +56,7 @@ class dataSet {
   }
 };
 
-int minHessian = 800;
+int minHessian = 400;
 
 class image {
  public:
@@ -337,14 +337,14 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds) {
   return true;
 }
 const String rootDir =
-    "/home/yuta/work/study/ImageProcessing/dateasets/temple/";
-// "/home/yuta/work/study/ImageProcessing/dateasets/ImageDataset_SceauxCastle/"
-// "images/";
-// "/home/yuta/work/study/ImageProcessing/dateasets/gerrard-hall/images/";
+    // "/home/yuta/work/study/ImageProcessing/dateasets/temple/";
+    // "/home/yuta/work/study/ImageProcessing/dateasets/ImageDataset_SceauxCastle/"
+    // "images/";
+    "/home/yuta/work/study/ImageProcessing/dateasets/gerrard-hall/images/";
 
 int main(int argc, char *argv[]) {
   dataSet ds(rootDir);
-  int start = 50;
+  int start = 1;
   Mat prev = ds.getImage(start);
   Mat cur = ds.getImage(start + 1);
   dataBase db = init(prev, cur, ds);
