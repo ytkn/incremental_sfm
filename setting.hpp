@@ -8,6 +8,7 @@ using namespace cv::xfeatures2d;
 struct Setting {
   String rootDir;
   bool showMatches;
+  bool showCameras;
   int minHessian;
   int startFrame;
   int displayPcdCycle;
@@ -26,10 +27,10 @@ Setting initSetting(String filename) {
   fs["matchingRatioThresh"] >> setting.matchingRatioThresh;
   fs["errorRatio"] >> setting.errorRatio;
   fs["reprojectionErrorThresh"] >> setting.reprojectionErrorThresh;
-  fs["showMatches"] >> setting.showMatches;
+  setting.showMatches = static_cast<std::string>(fs["showMatches"]) == "true";
+  setting.showCameras = static_cast<std::string>(fs["showCameras"]) == "true";
   fs["displayPcdCycle"] >> setting.displayPcdCycle;
   // setting.detector = SURF::create(setting.minHessian);
-  setting.showMatches = false;
   setting.detector = SIFT::create();
   return setting;
 }

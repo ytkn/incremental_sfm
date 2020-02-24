@@ -243,7 +243,7 @@ int main(int argc, char *argv[]) {
     addColor(ds, db, i - setting.startFrame - 1);
     db.imageIdx.push_back(i);
     if (i % setting.displayPcdCycle == 0 || i + 1 == ds.numImages)
-      showPoints(db, ds);
+      showPoints(db, ds, setting.showCameras);
   }
   return 0;
 }
