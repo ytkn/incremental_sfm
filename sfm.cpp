@@ -70,7 +70,7 @@ bool collectUndistortedPoints(const vector<DMatch> &good_matches,
   return true;
 }
 
-dataBase init(Mat img1, Mat img2, dataSet ds, Setting setting) {
+dataBase init(Mat img1, Mat img2, dataSet &ds, Setting &setting) {
   Mat K = ds.K;
   Mat distortion = ds.distortion;
   dataBase db;
@@ -81,7 +81,7 @@ dataBase init(Mat img1, Mat img2, dataSet ds, Setting setting) {
   vector<DMatch> good_matches =
       matchKeyPoints(descriptors1, descriptors2, setting.ratioThresh);
 
-  if (DEBUG) {
+  if (false) {
     showMatches(img1, img2, keypoints1, keypoints2, good_matches);
   }
   vector<long> idx1(keypoints1.size(), -1), idx2(keypoints2.size(), -1);
@@ -98,7 +98,6 @@ dataBase init(Mat img1, Mat img2, dataSet ds, Setting setting) {
   Mat P2 = K * Rt2;
   Mat result;
   triangulatePoints(P1, P2, p1, p2, result);
-  Mat initialPos = (Mat_<double>(3, 1) << 0, 0, 0);
   db.images.push_back(image(descriptors1, keypoints1, idx1, Rt1));
   db.images.push_back(image(descriptors2, keypoints2, idx2, Rt2));
   for (int i = 0; i < result.cols; i++) {
@@ -111,13 +110,57 @@ dataBase init(Mat img1, Mat img2, dataSet ds, Setting setting) {
       db.points.push_back(p);
     }
   }
-
-  if (DEBUG) {
-    cout << "POSE" << endl;
-    cout << R << endl;
-    cout << t << endl;
-  }
   return db;
+}
+
+vector<long> registerAdditionalResult(dataBase &db, const Mat &result,
+                                      const Mat &mask,
+                                      const vector<DMatch> good_matches,
+                                      const int prevIdx,
+                                      const int curKeypointsNum,
+                                      const Setting &setting) {
+  vector<long> curIdx(curKeypointsNum, -1);
+  const int curPoints = db.points.size();
+  int cntNewPoints = 0;
+  for (int i = 0; i < result.cols; i++) {
+    Vec3d pt = getPointIn3d(result, i);
+    int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
+    int idxCurKeypoint = good_matches[i].trainIdx;
+    if ((int)mask.at<uchar>(i) >= 1) {
+      if (idx == -1) {
+        curIdx[idxCurKeypoint] = curPoints + cntNewPoints;
+        cntNewPoints++;
+        point p(TENTATIVE, pt);
+        db.points.push_back(p);
+      } else {
+        // 登録済みの番号を入力
+        curIdx[idxCurKeypoint] = idx;
+        if (db.points[idx].status == TENTATIVE ||
+            db.points[idx].status == VALID) {
+          if (distance(db.points[idx].positionAbs, pt) >
+              norm(pt) * setting.errorRatio) {
+            db.points[idx].status = NO_POSITION;
+          } else {
+            db.points[idx].status = VALID;
+            db.points[idx].positionAbs = pt;
+          }
+        }
+        // else -> 何もしない
+      }
+      // outliers
+    } else {
+      if (idx == -1) {
+        point p(NO_POSITION, pt);
+        curIdx[idxCurKeypoint] = curPoints + cntNewPoints;
+        cntNewPoints++;
+        db.points.push_back(p);
+      } else {
+        curIdx[idxCurKeypoint] = idx;
+        db.points[idx].status = NO_POSITION;
+      }
+    }
+  }
+  return curIdx;
 }
 
 bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
@@ -132,7 +175,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
                                      curDescriptors);
   vector<DMatch> good_matches =
       matchKeyPoints(prevDescriptors, curDescriptors, setting.ratioThresh);
-  if (DEBUG) {
+  if (false) {
     Mat prevImage = ds.getImage(prevIdx + setting.start);
     showMatches(prevImage, img, prevKeypoints, curKeypoints, good_matches);
   }
@@ -143,7 +186,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
       cnt++;
     }
   }
-  cout << cnt << endl;
+  cout << "matches:" << cnt << endl;
   int cur = 0;
   Mat pointAbs(cnt, 1, CV_32FC3);
   Mat pointInImage(cnt, 1, CV_32FC2);
@@ -159,10 +202,9 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
     }
   }
 
-  Mat t, mask, Rvec, inliers;
+  Mat t, mask, Rvec, inliers, R;
   solvePnPRansac(pointAbs, pointInImage, K, distortion, Rvec, t, false, 1000,
                  0.4, 0.999, inliers);
-  Mat R;
   Rodrigues(Rvec, R);
   cout << R << endl;
   cout << t << endl;
@@ -177,52 +219,8 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
                    mask);
   Mat result;
   triangulatePoints(P1, P2, p1, p2, result);
-  int curPoints = db.points.size();
-  int cntNewPoints = 0;
-  vector<long> curIdx(curKeypoints.size(), -1);
-  for (int i = 0; i < result.cols; i++) {
-    Vec3d pt = getPointIn3d(result, i);
-    int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
-    int idxCurKeypoint = good_matches[i].trainIdx;
-    if ((int)mask.at<uchar>(i) >= 1) {
-      if (idx == -1) {
-        curIdx[idxCurKeypoint] = curPoints + cntNewPoints;
-        cntNewPoints++;
-        point p(TENTATIVE, pt);
-        db.points.push_back(p);
-      } else {
-        // 登録済みの番号を入力
-        curIdx[idxCurKeypoint] = idx;
-        if (db.points[idx].status == VALID) {
-          if (distance(db.points[idx].positionAbs, pt) >
-              norm(pt) * setting.errorRatio) {
-            db.points[idx].status = NO_POSITION;
-          }
-          // else -> 何もしない
-        } else if (db.points[idx].status == TENTATIVE) {
-          if (distance(db.points[idx].positionAbs, pt) >
-              norm(pt) * setting.errorRatio) {
-            db.points[idx].status = NO_POSITION;
-          } else {
-            db.points[idx].status = VALID;
-            db.points[idx].positionAbs = pt;
-          }
-          // else -> 何もしない
-        }
-      }
-    } else {
-      point p(NO_POSITION, pt);
-      if (idx == -1) {
-        curIdx[idxCurKeypoint] = curPoints + cntNewPoints;
-        cntNewPoints++;
-        db.points.push_back(p);
-      } else {
-        curIdx[idxCurKeypoint] = idx;
-        // もうすでに登録済みの場合は何もしない
-      }
-    }
-  }
-
+  vector<long> curIdx = registerAdditionalResult(
+      db, result, mask, good_matches, prevIdx, curKeypoints.size(), setting);
   db.images.push_back(image(curDescriptors, curKeypoints, curIdx, Rt2));
   return true;
 }
@@ -246,7 +244,7 @@ int main(int argc, char *argv[]) {
     addNewImage(db, i - setting.start - 1, cur, ds, setting);
     addColor(ds, db, i - setting.start - 1);
     db.imageIdx.push_back(i);
-    showPoints(db, ds);
+    if (i % 10 == 0) showPoints(db, ds);
   }
   return 0;
 }

@@ -20,7 +20,7 @@ void showPoints(dataBase db, dataSet ds) {
   int cnt = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
     if (db.points[i].status == VALID) {
-      if (norm(db.points[i].positionAbs) < 200) {
+      if (norm(db.points[i].positionAbs) < 500) {
         cloud_mat.push_back(db.points[i].positionAbs);
       } else {
         cloud_mat.push_back(Vec3d(0.0, 0.0, 0.0));
@@ -43,6 +43,10 @@ void showPoints(dataBase db, dataSet ds) {
          pose.at<double>(2, 2));
     t = (Mat_<double>(3, 1) << pose.at<double>(0, 3), pose.at<double>(1, 3),
          -pose.at<double>(2, 3));
+
+    // t = (Mat_<double>(3, 1) << pose.at<double>(0, 3), pose.at<double>(1, 3),
+    //      -pose.at<double>(2, 3));
+
     viz::WCameraPosition cpw(-0.1);
     viz::WCameraPosition cpw_frustum(Vec2f(0.889484, 0.523599), -0.1);
     std::string widgetPoseName = "CPW" + std::to_string(i);
