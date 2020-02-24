@@ -13,8 +13,6 @@
 #include "setting.hpp"
 #include "show.hpp"
 
-#define DEBUG true
-
 using namespace cv;
 using std::cout;
 using std::endl;
@@ -79,9 +77,9 @@ dataBase init(Mat img1, Mat img2, dataSet &ds, Setting &setting) {
   setting.detector->detectAndCompute(img1, noArray(), keypoints1, descriptors1);
   setting.detector->detectAndCompute(img2, noArray(), keypoints2, descriptors2);
   vector<DMatch> good_matches =
-      matchKeyPoints(descriptors1, descriptors2, setting.ratioThresh);
+      matchKeyPoints(descriptors1, descriptors2, setting.matchingRatioThresh);
 
-  if (false) {
+  if (setting.showMatches) {
     showMatches(img1, img2, keypoints1, keypoints2, good_matches);
   }
   vector<long> idx1(keypoints1.size(), -1), idx2(keypoints2.size(), -1);
@@ -90,7 +88,7 @@ dataBase init(Mat img1, Mat img2, dataSet &ds, Setting &setting) {
                            p1, p2, idx1, idx2);
   Mat E, R, t, mask;
   E = findEssentialMat(p1, p2, K, RANSAC, 0.999,
-                       setting.reprojectionErrorThreshold, mask);
+                       setting.reprojectionErrorThresh, mask);
   recoverPose(E, p1, p2, K, R, t, mask);
   Mat Rt1 = (Mat_<double>(3, 4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
   Mat P1 = K * Rt1;
@@ -173,10 +171,10 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
   Mat prevDescriptors = db.images[prevIdx].descriptors;
   setting.detector->detectAndCompute(img, noArray(), curKeypoints,
                                      curDescriptors);
-  vector<DMatch> good_matches =
-      matchKeyPoints(prevDescriptors, curDescriptors, setting.ratioThresh);
-  if (false) {
-    Mat prevImage = ds.getImage(prevIdx + setting.start);
+  vector<DMatch> good_matches = matchKeyPoints(prevDescriptors, curDescriptors,
+                                               setting.matchingRatioThresh);
+  if (setting.showMatches) {
+    Mat prevImage = ds.getImage(prevIdx + setting.startFrame);
     showMatches(prevImage, img, prevKeypoints, curKeypoints, good_matches);
   }
   int cnt = 0;
@@ -215,7 +213,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
   vector<Point2d> p1, p2;
   collectUndistortedPoints(good_matches, prevKeypoints, curKeypoints, K,
                            distortion, p1, p2);
-  findEssentialMat(p1, p2, K, RANSAC, 0.999, setting.reprojectionErrorThreshold,
+  findEssentialMat(p1, p2, K, RANSAC, 0.999, setting.reprojectionErrorThresh,
                    mask);
   Mat result;
   triangulatePoints(P1, P2, p1, p2, result);
@@ -226,25 +224,26 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
 }
 
 int main(int argc, char *argv[]) {
-  Setting setting = initSetting("setting.txt");
+  Setting setting = initSetting("setting.yml");
   dataSet ds(setting.rootDir);
   cout << "Read image" << endl;
-  Mat prev = ds.getImage(setting.start);
-  Mat cur = ds.getImage(setting.start + 1);
+  Mat prev = ds.getImage(setting.startFrame);
+  Mat cur = ds.getImage(setting.startFrame + 1);
   cout << prev.size() << endl;
   dataBase db = init(prev, cur, ds, setting);
-  db.imageIdx.push_back(setting.start);
-  db.imageIdx.push_back(setting.start + 1);
+  db.imageIdx.push_back(setting.startFrame);
+  db.imageIdx.push_back(setting.startFrame + 1);
   addColor(ds, db, 1);
   // showPoints(db, ds);
   prev = cur;
-  for (int i = setting.start + 2; i <= ds.numImages; i++) {
-    cout << i << endl;
+  for (int i = setting.startFrame + 2; i < ds.numImages; i++) {
+    cout << "Frame:" << i << endl;
     Mat cur = ds.getImage(i);
-    addNewImage(db, i - setting.start - 1, cur, ds, setting);
-    addColor(ds, db, i - setting.start - 1);
+    addNewImage(db, i - setting.startFrame - 1, cur, ds, setting);
+    addColor(ds, db, i - setting.startFrame - 1);
     db.imageIdx.push_back(i);
-    if (i % 10 == 0) showPoints(db, ds);
+    if (i % setting.displayPcdCycle == 0 || i + 1 == ds.numImages)
+      showPoints(db, ds);
   }
   return 0;
 }
