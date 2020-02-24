@@ -30,7 +30,6 @@ Setting initSetting(String filename) {
   setting.showMatches = static_cast<std::string>(fs["showMatches"]) == "true";
   setting.showCameras = static_cast<std::string>(fs["showCameras"]) == "true";
   fs["displayPcdCycle"] >> setting.displayPcdCycle;
-  // setting.detector = SURF::create(setting.minHessian);
   setting.detector = SIFT::create();
   return setting;
 }

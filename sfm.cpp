@@ -234,7 +234,6 @@ int main(int argc, char *argv[]) {
   db.imageIdx.push_back(setting.startFrame);
   db.imageIdx.push_back(setting.startFrame + 1);
   addColor(ds, db, 1);
-  // showPoints(db, ds);
   prev = cur;
   for (int i = setting.startFrame + 2; i < ds.numImages; i++) {
     cout << "Frame:" << i << endl;
