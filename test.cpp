@@ -17,6 +17,8 @@ using std::endl;
 using std::ifstream;
 using std::vector;
 
+enum PointStatus { NO_POSITION, TENTATIVE, VALID };
+
 class dataSet {
  public:
   int numImages;
@@ -35,20 +37,24 @@ class dataSet {
     K = (cv::Mat_<double>(3, 3) << k11, k12, k13, k21, k22, k23, k31, k32, k33);
     imageNames >> numImages;
     cout << K << endl;
+    cout << "Num images:" << numImages << endl;
     for (int i = 0; i < numImages; i++) {
       String fileName;
       imageNames >> fileName;
       filenames.push_back(fileName);
     }
     if (!dist) {
-      distortion = (cv::Mat_<double>(4, 1) << 0, 0, 0, 0);
+      distortion = (cv::Mat_<double>(5, 1) << 0, 0, 0, 0, 0);
     } else {
-      double k1, k2, p1, p2;
-      dist >> k1 >> k2 >> p1 >> p2;
-      distortion = (cv::Mat_<double>(4, 1) << k1, k2, p1, p2);
+      double k1, k2, p1, p2, k3;
+      dist >> k1 >> k2 >> p1 >> p2 >> k3;
+      distortion = (cv::Mat_<double>(5, 1) << k1, k2, p1, p2, k3);
     }
+    cout << distortion << endl;
+    cout << "initialized dataset" << endl;
   }
   Mat getImage(int n) {
+    cout << rootDir + filenames[n] << endl;
     Mat img = imread(rootDir + filenames[n], IMREAD_GRAYSCALE);
     return img;
   }
@@ -63,6 +69,8 @@ struct Setting {
   int minHessian;
   int start;
   float ratioThresh;
+  float errorRatio;
+  float reprojectionErrorThreshold;
   Ptr<Feature2D> detector;
 };
 
@@ -73,6 +81,8 @@ Setting initSetting(String filename) {
   settingFile >> setting.minHessian;
   settingFile >> setting.start;
   settingFile >> setting.ratioThresh;
+  settingFile >> setting.errorRatio;
+  settingFile >> setting.reprojectionErrorThreshold;
   // setting.detector = SURF::create(setting.minHessian);
   setting.detector = SIFT::create();
   return setting;
@@ -96,10 +106,10 @@ class image {
 
 class point {
  public:
-  bool hasPosition;
+  PointStatus status;
   Vec3d positionAbs;
-  point(bool hasPos, Vec3d pos) {
-    hasPosition = hasPos;
+  point(PointStatus _status, Vec3d pos) {
+    status = _status;
     positionAbs = pos;
   }
 };
@@ -132,7 +142,7 @@ Mat convertToRt(Mat R, Mat t) {
 void showPoints(dataBase db, dataSet ds) {
   int N = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
-    if (db.points[i].hasPosition) {
+    if (db.points[i].status == VALID) {
       N++;
     }
   }
@@ -140,8 +150,8 @@ void showPoints(dataBase db, dataSet ds) {
   vector<Vec3b> colorsToShow;
   int cnt = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
-    if (db.points[i].hasPosition) {
-      if (norm(db.points[i].positionAbs) < 100) {
+    if (db.points[i].status == VALID) {
+      if (norm(db.points[i].positionAbs) < 200) {
         cloud_mat.push_back(db.points[i].positionAbs);
       } else {
         cloud_mat.push_back(Vec3d(0.0, 0.0, 0.0));
@@ -152,6 +162,7 @@ void showPoints(dataBase db, dataSet ds) {
   }
 
   cout << "total:" << N << "points" << endl;
+  if (N == 0) return;
   String winname = "Viz Camera Pose";
   viz::Viz3d myWindow(winname);
   for (size_t i = 0; i < db.images.size(); i++) {
@@ -161,8 +172,8 @@ void showPoints(dataBase db, dataSet ds) {
          pose.at<double>(0, 2), pose.at<double>(1, 0), pose.at<double>(1, 1),
          pose.at<double>(1, 2), pose.at<double>(2, 0), pose.at<double>(2, 1),
          pose.at<double>(2, 2));
-    t = (Mat_<double>(3, 1) << -pose.at<double>(0, 3), pose.at<double>(1, 3),
-         pose.at<double>(2, 3));
+    t = (Mat_<double>(3, 1) << pose.at<double>(0, 3), pose.at<double>(1, 3),
+         -pose.at<double>(2, 3));
     viz::WCameraPosition cpw(-0.1);
     viz::WCameraPosition cpw_frustum(Vec2f(0.889484, 0.523599), -0.1);
     std::string widgetPoseName = "CPW" + std::to_string(i);
@@ -171,6 +182,7 @@ void showPoints(dataBase db, dataSet ds) {
     myWindow.showWidget(widgetFrustumName, cpw_frustum, Affine3d(R, t));
   }
   viz::WCloud wcloud(cloud_mat, colorsToShow);
+  // viz::WCloud wcloud(cloud_mat, viz::Color::white());
   myWindow.showWidget("Cloud", wcloud);
   myWindow.spin();
 }
@@ -192,7 +204,7 @@ bool addColor(dataSet ds, dataBase &db, int i) {
   db.colors.resize(db.points.size());
   for (size_t j = 0; j < db.images[i].keyPointIdx.size(); j++) {
     int idx = db.images[i].keyPointIdx[j];
-    if (idx >= 0 && db.points[idx].hasPosition) {
+    if (idx >= 0 && db.points[idx].status != NO_POSITION) {
       int x = (int)db.images[i].keyPoints[j].pt.x;
       int y = (int)db.images[i].keyPoints[j].pt.y;
       db.colors[idx] = img.at<Vec3b>(Point(x, y));
@@ -280,7 +292,8 @@ dataBase init(Mat img1, Mat img2, dataSet ds, Setting setting) {
   collectUndistortedPoints(good_matches, keypoints1, keypoints2, K, distortion,
                            p1, p2, idx1, idx2);
   Mat E, R, t, mask;
-  E = findEssentialMat(p1, p2, K, RANSAC, 0.999, 0.4, mask);
+  E = findEssentialMat(p1, p2, K, RANSAC, 0.999,
+                       setting.reprojectionErrorThreshold, mask);
   recoverPose(E, p1, p2, K, R, t, mask);
   Mat Rt1 = (Mat_<double>(3, 4) << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
   Mat P1 = K * Rt1;
@@ -294,10 +307,10 @@ dataBase init(Mat img1, Mat img2, dataSet ds, Setting setting) {
   for (int i = 0; i < result.cols; i++) {
     Vec3d pt = getPointIn3d(result, i);
     if ((int)mask.at<uchar>(i) >= 1) {
-      point p(true, pt);
+      point p(TENTATIVE, pt);
       db.points.push_back(p);
     } else {
-      point p(false, pt);
+      point p(NO_POSITION, pt);
       db.points.push_back(p);
     }
   }
@@ -329,7 +342,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
   int cnt = 0;
   for (size_t i = 0; i < good_matches.size(); i++) {
     int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
-    if (idx >= 0 && db.points[idx].hasPosition) {
+    if (idx >= 0 && db.points[idx].status != NO_POSITION) {
       cnt++;
     }
   }
@@ -339,7 +352,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
   Mat pointInImage(cnt, 1, CV_32FC2);
   for (size_t i = 0; i < good_matches.size(); i++) {
     int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
-    if (idx >= 0 && db.points[idx].hasPosition) {
+    if (idx >= 0 && db.points[idx].status != NO_POSITION) {
       pointAbs.at<Vec3f>(cur, 0) = db.points[idx].positionAbs;
       Vec2f pt;
       pt(0) = curKeypoints[good_matches[i].trainIdx].pt.x;
@@ -363,7 +376,8 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
   vector<Point2d> p1, p2;
   collectUndistortedPoints(good_matches, prevKeypoints, curKeypoints, K,
                            distortion, p1, p2);
-  findEssentialMat(p1, p2, K, RANSAC, 0.999, 0.4, mask);
+  findEssentialMat(p1, p2, K, RANSAC, 0.999, setting.reprojectionErrorThreshold,
+                   mask);
   Mat result;
   triangulatePoints(P1, P2, p1, p2, result);
   int curPoints = db.points.size();
@@ -374,24 +388,34 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
     int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
     int idxCurKeypoint = good_matches[i].trainIdx;
     if ((int)mask.at<uchar>(i) >= 1) {
-      point p(true, pt);
       if (idx == -1) {
         curIdx[idxCurKeypoint] = curPoints + cntNewPoints;
         cntNewPoints++;
+        point p(TENTATIVE, pt);
         db.points.push_back(p);
       } else {
         // 登録済みの番号を入力
         curIdx[idxCurKeypoint] = idx;
-        if (db.points[idx].hasPosition) {
-          // 何もしない
+        if (db.points[idx].status == VALID) {
+          if (distance(db.points[idx].positionAbs, pt) >
+              norm(pt) * setting.errorRatio) {
+            db.points[idx].status = NO_POSITION;
+          }
+          // else -> 何もしない
+        } else if (db.points[idx].status == TENTATIVE) {
+          if (distance(db.points[idx].positionAbs, pt) >
+              norm(pt) * setting.errorRatio) {
+            db.points[idx].status = NO_POSITION;
+          } else {
+            db.points[idx].status = VALID;
+            db.points[idx].positionAbs = pt;
+          }
         } else {
-          // positionを更新
-          db.points[idx].hasPosition = true;
-          db.points[idx].positionAbs = pt;
+          // 何もしない
         }
       }
     } else {
-      point p(false, pt);
+      point p(NO_POSITION, pt);
       if (idx == -1) {
         curIdx[idxCurKeypoint] = curPoints + cntNewPoints;
         cntNewPoints++;
@@ -410,6 +434,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
 int main(int argc, char *argv[]) {
   Setting setting = initSetting("setting.txt");
   dataSet ds(setting.rootDir);
+  cout << "Read image" << endl;
   Mat prev = ds.getImage(setting.start);
   Mat cur = ds.getImage(setting.start + 1);
   cout << prev.size() << endl;
@@ -417,7 +442,7 @@ int main(int argc, char *argv[]) {
   db.imageIdx.push_back(setting.start);
   db.imageIdx.push_back(setting.start + 1);
   addColor(ds, db, 1);
-  showPoints(db, ds);
+  // showPoints(db, ds);
   prev = cur;
   for (int i = setting.start + 2; i <= ds.numImages; i++) {
     cout << i << endl;
