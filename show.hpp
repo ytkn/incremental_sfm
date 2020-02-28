@@ -1,3 +1,6 @@
+#ifndef INCLUDED_Show_h_
+#define INCLUDED_Show_h
+
 #include <opencv2/opencv.hpp>
 
 #include "data.hpp"
@@ -20,7 +23,7 @@ void showPoints(dataBase db, dataSet ds, bool showCameras) {
   int cnt = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
     if (db.points[i].status == VALID) {
-      if (norm(db.points[i].positionAbs) < 500) {
+      if (norm(db.points[i].positionAbs) < 5000) {
         cloud_mat.push_back(db.points[i].positionAbs);
       } else {
         cloud_mat.push_back(Vec3d(0.0, 0.0, 0.0));
@@ -132,3 +135,5 @@ void showPointsByImage(dataBase db, dataSet ds, int idx) {
   myWindow.showWidget("Cloud", wcloud);
   myWindow.spin();
 }
+
+#endif

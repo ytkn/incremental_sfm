@@ -187,12 +187,21 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
 
   Mat t, mask, Rvec, inliers, R;
   solvePnPRansac(pointAbs, pointInImage, K, distortion, Rvec, t, false, 1000,
-                 0.4, 0.999, inliers);
+                 setting.reprojectionErrorThresh, 0.999, inliers);
   Rodrigues(Rvec, R);
   cout << R << endl;
   cout << t << endl;
   Mat P1 = K * db.images[prevIdx].cameraPose;
   Mat Rt2 = convertToRt(R, t);
+  cout << db.images[prevIdx].cameraPose << endl;
+  Vec3d prevPosition = RtToPosition(db.images[prevIdx].cameraPose);
+  Vec3d curPosition = RtToPosition(Rt2);
+  if (distance(prevPosition, curPosition) <
+      setting.ignoreDistanceRatio * db.initialDistance()) {
+    cout << "rejected" << endl;
+    return false;
+  }
+
   Mat P2 = K * Rt2;
 
   vector<Point2d> p1, p2;
@@ -223,8 +232,10 @@ int main(int argc, char *argv[]) {
   for (int i = setting.startFrame + 2; i < ds.numImages; i++) {
     cout << "Frame:" << i << endl;
     Mat cur = ds.getImage(i);
-    addNewImage(db, i - setting.startFrame - 1, cur, ds, setting);
-    addColor(ds, db, i - setting.startFrame - 1);
+    int prevIdx = db.lastIdx();
+    cout << prevIdx << endl;
+    addNewImage(db, prevIdx, cur, ds, setting);
+    addColor(ds, db, prevIdx);
     db.imageIdx.push_back(i);
     if (i % setting.displayPcdCycle == 0 || i + 1 == ds.numImages)
       showPoints(db, ds, setting.showCameras);

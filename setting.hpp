@@ -15,6 +15,7 @@ struct Setting {
   float matchingRatioThresh;
   float errorRatio;
   float reprojectionErrorThresh;
+  float ignoreDistanceRatio;
   Ptr<Feature2D> detector;
 };
 
@@ -26,6 +27,7 @@ Setting initSetting(String filename) {
   fs["startFrame"] >> setting.startFrame;
   fs["matchingRatioThresh"] >> setting.matchingRatioThresh;
   fs["errorRatio"] >> setting.errorRatio;
+  fs["ignoreDistanceRatio"] >> setting.ignoreDistanceRatio;
   fs["reprojectionErrorThresh"] >> setting.reprojectionErrorThresh;
   setting.showMatches = static_cast<std::string>(fs["showMatches"]) == "true";
   setting.showCameras = static_cast<std::string>(fs["showCameras"]) == "true";

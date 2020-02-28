@@ -91,6 +91,14 @@ class dataBase {
   vector<int> imageIdx;
   vector<Vec3b> colors;
   dataBase() {}
+  int lastIdx() { return images.size() - 1; }
+  double initialDistance() {
+    Mat Rt = images[1].cameraPose;
+    Vec3d t =
+        Vec3d(Rt.at<double>(0, 3), Rt.at<double>(1, 3), Rt.at<double>(2, 3));
+    cout << t << ' ';
+    return norm(t);
+  }
 };
 
 #endif

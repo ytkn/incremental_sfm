@@ -1,3 +1,6 @@
+#ifndef INCLUDED_Mat_h_
+#define INCLUDED_Mat_h
+
 #include <opencv2/opencv.hpp>
 
 using namespace cv;
@@ -25,3 +28,17 @@ Vec3d getPointIn3d(const Mat points, const int idx) {
   pt(2) = points.at<double>(2, idx) / points.at<double>(3, idx);
   return pt;
 }
+
+Vec3d RtToPosition(Mat pose) {
+  Mat R, t_;
+  R = (Mat_<double>(3, 3) << pose.at<double>(0, 0), pose.at<double>(0, 1),
+       pose.at<double>(0, 2), pose.at<double>(1, 0), pose.at<double>(1, 1),
+       pose.at<double>(1, 2), pose.at<double>(2, 0), pose.at<double>(2, 1),
+       pose.at<double>(2, 2));
+  t_ = (Mat_<double>(3, 1) << pose.at<double>(0, 3), pose.at<double>(1, 3),
+        pose.at<double>(2, 3));
+  Mat t = -R.inv() * t_;
+  return Vec3d(t.at<double>(0), t.at<double>(1), t.at<double>(2));
+}
+
+#endif
