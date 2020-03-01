@@ -7,6 +7,11 @@ this project implements simple incremental sfm.
 - solve pnp and incrementally add points
 - no bundle adjustment(feature work)
 
+
+### DEPENDENCIES
+- OpenCV
+ - including viz (for visualization)
+
 ## HOW TO USE
 
 ### BUILD

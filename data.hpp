@@ -48,7 +48,6 @@ class dataSet {
     cout << "initialized dataset" << endl;
   }
   Mat getImage(int n) {
-    cout << rootDir + filenames[n] << endl;
     Mat img = imread(rootDir + filenames[n], IMREAD_GRAYSCALE);
     return img;
   }

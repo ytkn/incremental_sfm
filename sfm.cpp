@@ -146,7 +146,52 @@ vector<long> registerAdditionalResult(dataBase &db, const Mat &result,
   return curIdx;
 }
 
-bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
+enum collectCliretia { WITH_POS, WITH_VALID_POS };
+bool matchCliteria(PointStatus status, collectCliretia criteria) {
+  if (criteria == WITH_POS)
+    return status != NO_POSITION;
+  else
+    return status == VALID;
+}
+
+bool collectPointWithPosition(const vector<DMatch> &good_matches,
+                              const dataBase &db, const int prevIdx,
+                              const dataSet &ds, Setting setting,
+                              const vector<KeyPoint> curKeypoints,
+                              Mat &pointAbs, Mat &pointInImage) {
+  int cntWithPos = 0;
+  int cntWithValidPos = 0;
+  for (size_t i = 0; i < good_matches.size(); i++) {
+    int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
+    if (idx >= 0 && db.points[idx].status != NO_POSITION) cntWithPos++;
+    if (idx >= 0 && db.points[idx].status == VALID) cntWithValidPos++;
+  }
+  cout << "with pos:" << cntWithPos << " with valid pos:" << cntWithValidPos
+       << ' ' << setting.validPnpThresh << endl;
+  collectCliretia criteria =
+      (cntWithValidPos >= setting.validPnpThresh ? WITH_VALID_POS : WITH_POS);
+  int cnt = (cntWithValidPos >= setting.validPnpThresh ? cntWithValidPos
+                                                       : cntWithPos);
+  Mat pointAbs_(cnt, 1, CV_32FC3);
+  Mat pointInImage_(cnt, 1, CV_32FC2);
+  int cur = 0;
+  for (size_t i = 0; i < good_matches.size(); i++) {
+    int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
+    if (idx >= 0 && matchCliteria(db.points[idx].status, criteria)) {
+      pointAbs_.at<Vec3f>(cur, 0) = db.points[idx].positionAbs;
+      Vec2f pt;
+      pt(0) = curKeypoints[good_matches[i].trainIdx].pt.x;
+      pt(1) = curKeypoints[good_matches[i].trainIdx].pt.y;
+      pointInImage_.at<Vec2f>(cur, 0) = pt;
+      cur++;
+    }
+  }
+  pointAbs = pointAbs_.clone();
+  pointInImage = pointInImage_.clone();
+  return true;
+}
+
+bool addNewImage(dataBase &db, const int prevIdx, Mat img, dataSet &ds,
                  Setting setting) {
   Mat K = ds.K;
   Mat distortion = ds.distortion;
@@ -162,38 +207,16 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
     Mat prevImage = ds.getImage(prevIdx + setting.startFrame);
     showMatches(prevImage, img, prevKeypoints, curKeypoints, good_matches);
   }
-  int cnt = 0;
-  for (size_t i = 0; i < good_matches.size(); i++) {
-    int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
-    if (idx >= 0 && db.points[idx].status != NO_POSITION) {
-      cnt++;
-    }
-  }
-  cout << "matches:" << cnt << endl;
-  int cur = 0;
-  Mat pointAbs(cnt, 1, CV_32FC3);
-  Mat pointInImage(cnt, 1, CV_32FC2);
-  for (size_t i = 0; i < good_matches.size(); i++) {
-    int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
-    if (idx >= 0 && db.points[idx].status != NO_POSITION) {
-      pointAbs.at<Vec3f>(cur, 0) = db.points[idx].positionAbs;
-      Vec2f pt;
-      pt(0) = curKeypoints[good_matches[i].trainIdx].pt.x;
-      pt(1) = curKeypoints[good_matches[i].trainIdx].pt.y;
-      pointInImage.at<Vec2f>(cur, 0) = pt;
-      cur++;
-    }
-  }
-
+  Mat pointAbs, pointInImage;
+  collectPointWithPosition(good_matches, db, prevIdx, ds, setting, curKeypoints,
+                           pointAbs, pointInImage);
   Mat t, mask, Rvec, inliers, R;
   solvePnPRansac(pointAbs, pointInImage, K, distortion, Rvec, t, false, 1000,
                  setting.reprojectionErrorThresh, 0.999, inliers);
   Rodrigues(Rvec, R);
-  cout << R << endl;
-  cout << t << endl;
+  cout << R << t << endl;
   Mat P1 = K * db.images[prevIdx].cameraPose;
   Mat Rt2 = convertToRt(R, t);
-  cout << db.images[prevIdx].cameraPose << endl;
   Vec3d prevPosition = RtToPosition(db.images[prevIdx].cameraPose);
   Vec3d curPosition = RtToPosition(Rt2);
   if (distance(prevPosition, curPosition) <
@@ -201,9 +224,7 @@ bool addNewImage(dataBase &db, int prevIdx, Mat img, dataSet ds,
     cout << "rejected" << endl;
     return false;
   }
-
   Mat P2 = K * Rt2;
-
   vector<Point2d> p1, p2;
   collectUndistortedPoints(good_matches, prevKeypoints, curKeypoints, K,
                            distortion, p1, p2);
