@@ -16,6 +16,7 @@ struct Setting {
   float errorRatio;
   float reprojectionErrorThresh;
   float ignoreDistanceRatio;
+  float minFlowLength;
   int validPnpThresh;
   Ptr<Feature2D> detector;
 };
@@ -30,6 +31,7 @@ Setting initSetting(String filename) {
   fs["errorRatio"] >> setting.errorRatio;
   fs["ignoreDistanceRatio"] >> setting.ignoreDistanceRatio;
   fs["reprojectionErrorThresh"] >> setting.reprojectionErrorThresh;
+  fs["minFlowLength"] >> setting.minFlowLength;
   setting.showMatches = static_cast<std::string>(fs["showMatches"]) == "true";
   setting.showCameras = static_cast<std::string>(fs["showCameras"]) == "true";
   fs["displayPcdCycle"] >> setting.displayPcdCycle;

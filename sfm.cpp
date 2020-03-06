@@ -53,17 +53,32 @@ bool collectUndistortedPoints(const vector<DMatch> &good_matches,
   return true;
 }
 
-dataBase init(Mat img1, Mat img2, dataSet &ds, Setting &setting) {
+double meanFlowLength(const vector<DMatch> &good_matches,
+                      const vector<KeyPoint> &keypoints1,
+                      const vector<KeyPoint> &keypoints2) {
+  double sum = 0;
+  for (size_t i = 0; i < good_matches.size(); i++) {
+    Point2d p1 = keypoints1[good_matches[i].queryIdx].pt;
+    Point2d p2 = keypoints2[good_matches[i].trainIdx].pt;
+    sum += sqrt((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y));
+  }
+  return sum / good_matches.size();
+}
+
+bool init(Mat img1, Mat img2, dataSet &ds, Setting &setting, dataBase &db) {
   Mat K = ds.K;
   Mat distortion = ds.distortion;
-  dataBase db;
   vector<KeyPoint> keypoints1, keypoints2;
   Mat descriptors1, descriptors2;
   setting.detector->detectAndCompute(img1, noArray(), keypoints1, descriptors1);
   setting.detector->detectAndCompute(img2, noArray(), keypoints2, descriptors2);
   vector<DMatch> good_matches =
       matchKeyPoints(descriptors1, descriptors2, setting.matchingRatioThresh);
-
+  if (meanFlowLength(good_matches, keypoints1, keypoints2) <
+      setting.minFlowLength) {
+    cout << "rejected" << endl;
+    return false;
+  }
   if (setting.showMatches) {
     showMatches(img1, img2, keypoints1, keypoints2, good_matches);
   }
@@ -93,7 +108,7 @@ dataBase init(Mat img1, Mat img2, dataSet &ds, Setting &setting) {
       db.points.push_back(p);
     }
   }
-  return db;
+  return true;
 }
 
 vector<long> registerAdditionalResult(dataBase &db, const Mat &result,
@@ -146,8 +161,8 @@ vector<long> registerAdditionalResult(dataBase &db, const Mat &result,
   return curIdx;
 }
 
-enum collectCliretia { WITH_POS, WITH_VALID_POS };
-bool matchCliteria(PointStatus status, collectCliretia criteria) {
+enum collectionCliretia { WITH_POS, WITH_VALID_POS };
+bool isMatchCliteria(PointStatus status, collectionCliretia criteria) {
   if (criteria == WITH_POS)
     return status != NO_POSITION;
   else
@@ -168,7 +183,7 @@ bool collectPointWithPosition(const vector<DMatch> &good_matches,
   }
   cout << "with pos:" << cntWithPos << " with valid pos:" << cntWithValidPos
        << ' ' << setting.validPnpThresh << endl;
-  collectCliretia criteria =
+  collectionCliretia criteria =
       (cntWithValidPos >= setting.validPnpThresh ? WITH_VALID_POS : WITH_POS);
   int cnt = (cntWithValidPos >= setting.validPnpThresh ? cntWithValidPos
                                                        : cntWithPos);
@@ -177,7 +192,7 @@ bool collectPointWithPosition(const vector<DMatch> &good_matches,
   int cur = 0;
   for (size_t i = 0; i < good_matches.size(); i++) {
     int idx = db.images[prevIdx].keyPointIdx[good_matches[i].queryIdx];
-    if (idx >= 0 && matchCliteria(db.points[idx].status, criteria)) {
+    if (idx >= 0 && isMatchCliteria(db.points[idx].status, criteria)) {
       pointAbs_.at<Vec3f>(cur, 0) = db.points[idx].positionAbs;
       Vec2f pt;
       pt(0) = curKeypoints[good_matches[i].trainIdx].pt.x;
@@ -203,6 +218,12 @@ bool addNewImage(dataBase &db, const int prevIdx, Mat img, dataSet &ds,
                                      curDescriptors);
   vector<DMatch> good_matches = matchKeyPoints(prevDescriptors, curDescriptors,
                                                setting.matchingRatioThresh);
+
+  if (meanFlowLength(good_matches, prevKeypoints, curKeypoints) <
+      setting.minFlowLength) {
+    cout << "rejected" << endl;
+    return false;
+  }
   if (setting.showMatches) {
     Mat prevImage = ds.getImage(prevIdx + setting.startFrame);
     showMatches(prevImage, img, prevKeypoints, curKeypoints, good_matches);
@@ -243,14 +264,20 @@ int main(int argc, char *argv[]) {
   dataSet ds(setting.rootDir);
   cout << "Read image" << endl;
   Mat prev = ds.getImage(setting.startFrame);
-  Mat cur = ds.getImage(setting.startFrame + 1);
+  int curImgIdx = 1;
+  Mat cur = ds.getImage(setting.startFrame + curImgIdx);
   cout << prev.size() << endl;
-  dataBase db = init(prev, cur, ds, setting);
+  dataBase db;
+  while (!init(prev, cur, ds, setting, db)) {
+    curImgIdx++;
+    cur = ds.getImage(setting.startFrame + curImgIdx);
+  }
   db.imageIdx.push_back(setting.startFrame);
-  db.imageIdx.push_back(setting.startFrame + 1);
-  addColor(ds, db, 1);
+  db.imageIdx.push_back(setting.startFrame + curImgIdx);
+  addColor(ds, db, curImgIdx);
+  showPoints(db, ds, setting.showCameras);
   prev = cur;
-  for (int i = setting.startFrame + 2; i < ds.numImages; i++) {
+  for (int i = setting.startFrame + curImgIdx + 1; i < ds.numImages; i++) {
     cout << "Frame:" << i << endl;
     Mat cur = ds.getImage(i);
     int prevIdx = db.lastIdx();
