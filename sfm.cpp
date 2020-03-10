@@ -285,7 +285,8 @@ bool rematchImage(const DataBase &db, const int targetIdx, Mat img, DataSet &ds,
   E = findEssentialMat(p1, p2, K, RANSAC, 0.999,
                        setting.reprojectionErrorThresh, mask);
   recoverPose(E, p1, p2, K, R, t, mask);
-  cout << "rematch succeeded and detected loop" << R << t << endl;
+  cout << "detected loop with " << targetIdx << endl;
+  cout << "relative position is " << R << t << endl;
   return true;
 }
 

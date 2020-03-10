@@ -5,13 +5,17 @@ this project implements simple incremental sfm.
 - initialize
 - feature matching
 - solve pnp and incrementally add points
-- no bundle adjustment(feature work)
+- loop detection 
+
+### future works
+- loop closure
+- bundle adjustment
 
 
 ### DEPENDENCIES
 - OpenCV
  - including viz (for visualization)
-
+- DVoW2 (for loop detection)
 ## HOW TO USE
 
 ### BUILD
