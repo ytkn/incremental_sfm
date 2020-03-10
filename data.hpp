@@ -3,24 +3,28 @@
 
 #include <fstream>
 #include <opencv2/opencv.hpp>
+#include <queue>
 #include "enums.hpp"
 #include "opencv2/xfeatures2d.hpp"
+
+#include "DBoW2.h"
 
 using std::ifstream;
 using namespace cv;
 
 using std::cout;
 using std::endl;
+using std::queue;
 using std::vector;
 
-class dataSet {
+class DataSet {
  public:
   int numImages;
   String rootDir;
   vector<String> filenames;
   Mat K;
   Mat distortion;
-  dataSet(String root) {
+  DataSet(String root) {
     rootDir = root;
     cout << root << endl;
     ifstream calib(rootDir + "K.txt");
@@ -84,13 +88,13 @@ class point {
   }
 };
 
-class dataBase {
+class DataBase {
  public:
   vector<point> points;
   vector<image> images;
   vector<int> imageIdx;
   vector<Vec3b> colors;
-  dataBase() {}
+  DataBase() {}
   int lastIdx() { return images.size() - 1; }
   double initialDistance() {
     Mat Rt = images[1].cameraPose;
@@ -98,6 +102,52 @@ class dataBase {
         Vec3d(Rt.at<double>(0, 3), Rt.at<double>(1, 3), Rt.at<double>(2, 3));
     cout << t << ' ';
     return norm(t);
+  }
+};
+
+class LoopDetector {
+ public:
+  size_t loopInterval;
+  OrbDatabase db;
+  Ptr<ORB> orb;
+  queue<vector<Mat>> fque;
+  LoopDetector(String vocFile) {
+    loopInterval = 50;
+    orb = ORB::create();
+    OrbVocabulary voc(vocFile);
+    OrbDatabase db_(voc, false, 0);
+    db = db_;
+  }
+  int addImageAndDetectLoop(Mat image) {
+    vector<KeyPoint> keypoints;
+    Mat mask;
+    Mat descriptors;
+    orb->detectAndCompute(image, mask, keypoints, descriptors);
+    vector<Mat> desc;
+    changeStructure(descriptors, desc);
+    int ret = detectLoop(desc);
+    fque.push(desc);
+    if (fque.size() > loopInterval) {
+      db.add(fque.front());
+      fque.pop();
+    }
+    return ret;
+  }
+
+ private:
+  int detectLoop(vector<Mat> desc) {
+    if (db.size() == 0) return -1;
+    DBoW2::QueryResults ret;
+    db.query(desc, ret, 1);
+    return (ret[0].Score > 0.45 ? ret[0].Id - 1 : -1);
+  }
+
+  void changeStructure(const cv::Mat &plain, vector<cv::Mat> &out) {
+    out.resize(plain.rows);
+
+    for (int i = 0; i < plain.rows; ++i) {
+      out[i] = plain.row(i);
+    }
   }
 };
 

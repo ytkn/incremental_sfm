@@ -65,7 +65,7 @@ double meanFlowLength(const vector<DMatch> &good_matches,
   return sum / good_matches.size();
 }
 
-bool init(Mat img1, Mat img2, dataSet &ds, Setting &setting, dataBase &db) {
+bool init(Mat img1, Mat img2, DataSet &ds, Setting &setting, DataBase &db) {
   Mat K = ds.K;
   Mat distortion = ds.distortion;
   vector<KeyPoint> keypoints1, keypoints2;
@@ -111,7 +111,7 @@ bool init(Mat img1, Mat img2, dataSet &ds, Setting &setting, dataBase &db) {
   return true;
 }
 
-vector<long> registerAdditionalResult(dataBase &db, const Mat &result,
+vector<long> registerAdditionalResult(DataBase &db, const Mat &result,
                                       const Mat &mask,
                                       const vector<DMatch> good_matches,
                                       const int prevIdx,
@@ -170,8 +170,8 @@ bool isMatchCliteria(PointStatus status, collectionCliretia criteria) {
 }
 
 bool collectPointWithPosition(const vector<DMatch> &good_matches,
-                              const dataBase &db, const int prevIdx,
-                              const dataSet &ds, Setting setting,
+                              const DataBase &db, const int prevIdx,
+                              const DataSet &ds, Setting setting,
                               const vector<KeyPoint> curKeypoints,
                               Mat &pointAbs, Mat &pointInImage) {
   int cntWithPos = 0;
@@ -206,7 +206,7 @@ bool collectPointWithPosition(const vector<DMatch> &good_matches,
   return true;
 }
 
-bool addNewImage(dataBase &db, const int prevIdx, Mat img, dataSet &ds,
+bool addNewImage(DataBase &db, const int prevIdx, Mat img, DataSet &ds,
                  Setting setting) {
   Mat K = ds.K;
   Mat distortion = ds.distortion;
@@ -259,19 +259,52 @@ bool addNewImage(dataBase &db, const int prevIdx, Mat img, dataSet &ds,
   return true;
 }
 
+bool rematchImage(const DataBase &db, const int targetIdx, Mat img, DataSet &ds,
+                  Setting setting) {
+  Mat K = ds.K;
+  Mat distortion = ds.distortion;
+  vector<KeyPoint> curKeypoints;
+  vector<KeyPoint> prevKeypoints = db.images[targetIdx].keyPoints;
+  Mat curDescriptors;
+  Mat prevDescriptors = db.images[targetIdx].descriptors;
+  setting.detector->detectAndCompute(img, noArray(), curKeypoints,
+                                     curDescriptors);
+  vector<DMatch> good_matches = matchKeyPoints(prevDescriptors, curDescriptors,
+                                               setting.matchingRatioThresh);
+  if (good_matches.size() < 100) {
+    return false;
+  }
+  if (true) {
+    Mat prevImage = ds.getImage(targetIdx + setting.startFrame);
+    showMatches(prevImage, img, prevKeypoints, curKeypoints, good_matches);
+  }
+  vector<Point2d> p1, p2;
+  collectUndistortedPoints(good_matches, prevKeypoints, curKeypoints, K,
+                           distortion, p1, p2);
+  Mat E, R, t, mask;
+  E = findEssentialMat(p1, p2, K, RANSAC, 0.999,
+                       setting.reprojectionErrorThresh, mask);
+  recoverPose(E, p1, p2, K, R, t, mask);
+  cout << "rematch succeeded and detected loop" << R << t << endl;
+  return true;
+}
+
 int main(int argc, char *argv[]) {
   Setting setting = initSetting("setting.yml");
-  dataSet ds(setting.rootDir);
+  DataSet ds(setting.rootDir);
   cout << "Read image" << endl;
   Mat prev = ds.getImage(setting.startFrame);
   int curImgIdx = 1;
   Mat cur = ds.getImage(setting.startFrame + curImgIdx);
   cout << prev.size() << endl;
-  dataBase db;
+  DataBase db;
+  LoopDetector loopDetector("small_voc.yml.gz");
   while (!init(prev, cur, ds, setting, db)) {
     curImgIdx++;
     cur = ds.getImage(setting.startFrame + curImgIdx);
   }
+  loopDetector.addImageAndDetectLoop(prev);
+  loopDetector.addImageAndDetectLoop(cur);
   db.imageIdx.push_back(setting.startFrame);
   db.imageIdx.push_back(setting.startFrame + curImgIdx);
   addColor(ds, db, curImgIdx);
@@ -282,8 +315,14 @@ int main(int argc, char *argv[]) {
     Mat cur = ds.getImage(i);
     int prevIdx = db.lastIdx();
     cout << prevIdx << endl;
-    addNewImage(db, prevIdx, cur, ds, setting);
-    addColor(ds, db, prevIdx);
+    bool added = addNewImage(db, prevIdx, cur, ds, setting);
+    if (added) {
+      int matchIdx = loopDetector.addImageAndDetectLoop(cur);
+      if (matchIdx >= 0) {
+        rematchImage(db, matchIdx, cur, ds, setting);
+      }
+      addColor(ds, db, prevIdx);
+    }
     db.imageIdx.push_back(i);
     if (i % setting.displayPcdCycle == 0 || i + 1 == ds.numImages)
       showPoints(db, ds, setting.showCameras);

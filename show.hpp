@@ -11,7 +11,7 @@ using std::cout;
 using std::endl;
 using std::vector;
 
-void showPoints(dataBase db, dataSet ds, bool showCameras) {
+void showPoints(DataBase db, DataSet ds, bool showCameras) {
   int N = 0;
   for (size_t i = 0; i < db.points.size(); i++) {
     if (db.points[i].status == VALID) {
@@ -73,7 +73,7 @@ bool showMatches(Mat img1, Mat img2, vector<KeyPoint> keypoints1,
   return true;
 }
 
-bool addColor(dataSet ds, dataBase &db, int i) {
+bool addColor(DataSet ds, DataBase &db, int i) {
   Mat img = ds.getColorImage(db.imageIdx[i]);
   db.colors.resize(db.points.size());
   for (size_t j = 0; j < db.images[i].keyPointIdx.size(); j++) {
@@ -87,7 +87,7 @@ bool addColor(dataSet ds, dataBase &db, int i) {
   return true;
 }
 
-void showPointsByImage(dataBase db, dataSet ds, int idx) {
+void showPointsByImage(DataBase db, DataSet ds, int idx) {
   int N = 0;
   cout << idx << endl;
   for (size_t i = 0; i < db.images[idx].keyPoints.size(); i++) {
