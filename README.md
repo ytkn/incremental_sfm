@@ -1,16 +1,16 @@
 # incremental_sfm
 
 ## ABOUT
-this project implements simple incremental sfm.
+this project implements simple incremental sfm with the following functions.
 - initialize
 - feature matching
 - solve pnp and incrementally add points
 - loop detection 
+- visualization (both point clouds and camera poses)
 
 ### future works
 - loop closure
 - bundle adjustment
-
 
 ### DEPENDENCIES
 - OpenCV
@@ -44,7 +44,7 @@ reprojectionErrorThresh: 0.4
 ./sfm
 ```
 
-### TARGET DATASET
+### TARGET DATA STRUCTURE
 #### `images.txt`
 - list of images (required)
 ```

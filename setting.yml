@@ -1,0 +1,13 @@
+%YAML:1.0
+rootDir: <dataset_path> 
+showMatches: "false" 
+showCameras: "true"
+minHessian: 800
+displayPcdCycle: 1100
+startFrame: 10 
+matchingRatioThresh: 0.7
+minFlowLength: 10.0
+ignoreDistanceRatio: 1.0
+errorRatio: 0.02
+reprojectionErrorThresh: 0.4
+validPnpThresh: 200
