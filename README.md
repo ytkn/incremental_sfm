@@ -1,4 +1,4 @@
-# incremental_sfm
+# Incremental SfM
 
 ## ABOUT
 this project implements simple incremental sfm with the following functions.
